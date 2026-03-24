@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-03-events-engine
+  namespace: quantum-edge
+  labels:
+    app: agent-03-events-engine
+    component: agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-03-events-engine
+  template:
+    metadata:
+      labels:
+        app: agent-03-events-engine
+        component: agent
+    spec:
+      containers:
+        - name: agent-03-events-engine
+          image: ${ECR_AGENT_URL}:latest
+          env:
+            - name: AGENT_NAME
+              value: agent_03_events_engine
+            - name: AGENT_MODULE
+              value: agents.agent_03_events_engine.main
+          envFrom:
+            - configMapRef:
+                name: qe-config
+            - secretRef:
+                name: qe-secrets
+          resources:
+            requests:
+              cpu: 128m
+              memory: 256Mi
+            limits:
+              cpu: 256m
+              memory: 512Mi
+      restartPolicy: Always

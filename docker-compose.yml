@@ -1,0 +1,146 @@
+version: "3.9"
+
+x-agent-common: &agent-common
+  build:
+    context: .
+    dockerfile: infrastructure/docker/Dockerfile.agent
+  env_file: .env
+  depends_on:
+    redis:
+      condition: service_healthy
+    timescaledb:
+      condition: service_healthy
+  restart: unless-stopped
+  networks:
+    - qe-network
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - qe-network
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: quantum_edge
+      POSTGRES_USER: qe_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qe_dev_password}
+    volumes:
+      - timescaledb-data:/var/lib/postgresql/data
+      - ./infrastructure/scripts/init_timescaledb.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qe_user -d quantum_edge"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - qe-network
+
+  coordinator:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.coordinator
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - qe-network
+
+  agent-01-news-scanner:
+    <<: *agent-common
+    environment:
+      AGENT_NAME: agent_01_news_scanner
+      AGENT_MODULE: agents.agent_01_news_scanner.main
+
+  agent-02-market-data:
+    <<: *agent-common
+    environment:
+      AGENT_NAME: agent_02_market_data
+      AGENT_MODULE: agents.agent_02_market_data.main
+
+  agent-03-events-engine:
+    <<: *agent-common
+    environment:
+      AGENT_NAME: agent_03_events_engine
+      AGENT_MODULE: agents.agent_03_events_engine.main
+
+  agent-04-momentum-bot:
+    <<: *agent-common
+    environment:
+      AGENT_NAME: agent_04_momentum_bot
+      AGENT_MODULE: agents.agent_04_momentum_bot.main
+
+  agent-05-risk-guard:
+    <<: *agent-common
+    environment:
+      AGENT_NAME: agent_05_risk_guard
+      AGENT_MODULE: agents.agent_05_risk_guard.main
+
+  agent-06-data-scientist:
+    <<: *agent-common
+    environment:
+      AGENT_NAME: agent_06_data_scientist
+      AGENT_MODULE: agents.agent_06_data_scientist.main
+
+  agent-07-smart-money:
+    <<: *agent-common
+    environment:
+      AGENT_NAME: agent_07_smart_money
+      AGENT_MODULE: agents.agent_07_smart_money.main
+
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.agent
+    env_file: .env
+    command: uvicorn quantum_edge.api:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    networks:
+      - qe-network
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.agent
+    env_file: .env
+    command: streamlit run dashboards/streamlit_app.py --server.port 8501 --server.address 0.0.0.0
+    ports:
+      - "8501:8501"
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    networks:
+      - qe-network
+
+volumes:
+  redis-data:
+  timescaledb-data:
+
+networks:
+  qe-network:
+    driver: bridge

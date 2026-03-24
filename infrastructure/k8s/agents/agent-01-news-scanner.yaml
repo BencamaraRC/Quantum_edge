@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-01-news-scanner
+  namespace: quantum-edge
+  labels:
+    app: agent-01-news-scanner
+    component: agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-01-news-scanner
+  template:
+    metadata:
+      labels:
+        app: agent-01-news-scanner
+        component: agent
+    spec:
+      containers:
+        - name: agent-01-news-scanner
+          image: ${ECR_AGENT_URL}:latest
+          env:
+            - name: AGENT_NAME
+              value: agent_01_news_scanner
+            - name: AGENT_MODULE
+              value: agents.agent_01_news_scanner.main
+          envFrom:
+            - configMapRef:
+                name: qe-config
+            - secretRef:
+                name: qe-secrets
+          resources:
+            requests:
+              cpu: 256m
+              memory: 512Mi
+            limits:
+              cpu: 512m
+              memory: 1024Mi
+      restartPolicy: Always

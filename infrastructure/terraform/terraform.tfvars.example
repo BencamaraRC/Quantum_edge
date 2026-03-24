@@ -1,0 +1,14 @@
+aws_region             = "us-east-1"
+environment            = "production"
+vpc_cidr               = "10.0.0.0/16"
+eks_cluster_version    = "1.29"
+eks_node_instance_type = "t3.large"
+eks_node_desired_size  = 3
+eks_node_min_size      = 2
+eks_node_max_size      = 5
+db_instance_class      = "db.r6g.large"
+db_allocated_storage   = 100
+db_name                = "quantum_edge"
+db_username            = "qe_user"
+redis_node_type        = "cache.r7g.large"
+redis_num_cache_clusters = 2

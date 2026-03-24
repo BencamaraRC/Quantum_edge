@@ -1,0 +1,29 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: init-redis-streams
+  namespace: quantum-edge
+  labels:
+    app: init-redis-streams
+    component: init
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: init-redis-streams
+        component: init
+    spec:
+      containers:
+        - name: init-redis-streams
+          image: ${ECR_AGENT_URL}:latest
+          command: ["python"]
+          args: ["-m", "infrastructure.scripts.init_redis_streams"]
+          env:
+            - name: REDIS_URL
+              value: "redis://${REDIS_ENDPOINT}:6379/0"
+          envFrom:
+            - configMapRef:
+                name: qe-config
+      restartPolicy: Never

@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-06-data-scientist
+  namespace: quantum-edge
+  labels:
+    app: agent-06-data-scientist
+    component: agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-06-data-scientist
+  template:
+    metadata:
+      labels:
+        app: agent-06-data-scientist
+        component: agent
+    spec:
+      containers:
+        - name: agent-06-data-scientist
+          image: ${ECR_AGENT_URL}:latest
+          env:
+            - name: AGENT_NAME
+              value: agent_06_data_scientist
+            - name: AGENT_MODULE
+              value: agents.agent_06_data_scientist.main
+          envFrom:
+            - configMapRef:
+                name: qe-config
+            - secretRef:
+                name: qe-secrets
+          resources:
+            requests:
+              cpu: 512m
+              memory: 1024Mi
+            limits:
+              cpu: 1024m
+              memory: 2048Mi
+      restartPolicy: Always

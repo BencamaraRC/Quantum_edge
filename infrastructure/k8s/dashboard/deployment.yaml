@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qe-dashboard
+  namespace: quantum-edge
+  labels:
+    app: qe-dashboard
+    component: dashboard
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: qe-dashboard
+  template:
+    metadata:
+      labels:
+        app: qe-dashboard
+        component: dashboard
+    spec:
+      containers:
+        - name: qe-dashboard
+          image: ${ECR_DASHBOARD_URL}:latest
+          ports:
+            - containerPort: 80
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 20
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 64m
+              memory: 64Mi
+            limits:
+              cpu: 128m
+              memory: 128Mi
+      restartPolicy: Always

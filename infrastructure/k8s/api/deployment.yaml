@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qe-api
+  namespace: quantum-edge
+  labels:
+    app: qe-api
+    component: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: qe-api
+  template:
+    metadata:
+      labels:
+        app: qe-api
+        component: api
+    spec:
+      containers:
+        - name: qe-api
+          image: ${ECR_AGENT_URL}:latest
+          command: ["uvicorn"]
+          args: ["quantum_edge.api:app", "--host", "0.0.0.0", "--port", "8000"]
+          ports:
+            - containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: qe-config
+            - secretRef:
+                name: qe-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 256m
+              memory: 512Mi
+            limits:
+              cpu: 512m
+              memory: 1024Mi
+      restartPolicy: Always

@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-02-market-data
+  namespace: quantum-edge
+  labels:
+    app: agent-02-market-data
+    component: agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-02-market-data
+  template:
+    metadata:
+      labels:
+        app: agent-02-market-data
+        component: agent
+    spec:
+      containers:
+        - name: agent-02-market-data
+          image: ${ECR_AGENT_URL}:latest
+          env:
+            - name: AGENT_NAME
+              value: agent_02_market_data
+            - name: AGENT_MODULE
+              value: agents.agent_02_market_data.main
+          envFrom:
+            - configMapRef:
+                name: qe-config
+            - secretRef:
+                name: qe-secrets
+          resources:
+            requests:
+              cpu: 128m
+              memory: 256Mi
+            limits:
+              cpu: 256m
+              memory: 512Mi
+      restartPolicy: Always

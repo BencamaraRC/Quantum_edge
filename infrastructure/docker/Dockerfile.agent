@@ -1,0 +1,25 @@
+FROM python:3.12-slim AS base
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir poetry==2.3.2
+
+COPY pyproject.toml poetry.lock ./
+RUN poetry config virtualenvs.create false \
+    && poetry install --no-interaction --no-ansi --without dev
+
+COPY quantum_edge/ quantum_edge/
+COPY agents/ agents/
+COPY coordinator/ coordinator/
+COPY dashboards/ dashboards/
+COPY infrastructure/scripts/ infrastructure/scripts/
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+CMD python -m ${AGENT_MODULE}

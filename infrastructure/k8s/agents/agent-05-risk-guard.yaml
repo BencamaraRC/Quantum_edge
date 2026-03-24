@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-05-risk-guard
+  namespace: quantum-edge
+  labels:
+    app: agent-05-risk-guard
+    component: agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-05-risk-guard
+  template:
+    metadata:
+      labels:
+        app: agent-05-risk-guard
+        component: agent
+    spec:
+      containers:
+        - name: agent-05-risk-guard
+          image: ${ECR_AGENT_URL}:latest
+          env:
+            - name: AGENT_NAME
+              value: agent_05_risk_guard
+            - name: AGENT_MODULE
+              value: agents.agent_05_risk_guard.main
+          envFrom:
+            - configMapRef:
+                name: qe-config
+            - secretRef:
+                name: qe-secrets
+          resources:
+            requests:
+              cpu: 128m
+              memory: 256Mi
+            limits:
+              cpu: 256m
+              memory: 512Mi
+      restartPolicy: Always

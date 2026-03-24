@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: qe-api
+  namespace: quantum-edge
+  labels:
+    app: qe-api
+    component: api
+spec:
+  type: ClusterIP
+  selector:
+    app: qe-api
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP

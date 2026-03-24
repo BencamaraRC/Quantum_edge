@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+import secrets
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_config_logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -80,6 +85,22 @@ class Settings(BaseSettings):
 
     # ─── Environment ───
     environment: str = "development"
+
+    def model_post_init(self, __context: object) -> None:
+        """Validate critical security settings after initialization."""
+        if not self.qe_jwt_secret:
+            if self.environment == "production":
+                raise ValueError(
+                    "QE_JWT_SECRET must be set in production. "
+                    "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+                )
+            # Auto-generate for development — log a warning
+            generated = secrets.token_urlsafe(32)
+            object.__setattr__(self, "qe_jwt_secret", generated)
+            _config_logger.warning(
+                "QE_JWT_SECRET not set — generated ephemeral secret for development. "
+                "Tokens will be invalidated on restart. Set QE_JWT_SECRET for persistence."
+            )
 
 
 settings = Settings()

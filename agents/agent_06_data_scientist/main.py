@@ -50,8 +50,9 @@ class DataScientist(BaseAgent):
     def __init__(self) -> None:
         super().__init__()
         self._hmm_model: GaussianHMM | None = None
-        self._returns_buffer: list[float] = []
-        self._last_price: float = 0.0
+        self._returns_buffer: list[float] = []  # SPY-only for regime detection
+        self._last_prices: dict[str, float] = {}  # per-symbol last price
+        self._regime_symbol: str = "SPY"
         self._current_regime: str = "unknown"
         self._vol_forecast: float = 0.0
         self._last_training: datetime | None = None
@@ -149,15 +150,18 @@ class DataScientist(BaseAgent):
                 signal_json = data.get("data", "{}")
                 signal_data = orjson.loads(signal_json)
                 price = float(signal_data.get("price", 0))
+                symbol = signal_data.get("symbol", data.get("symbol", ""))
 
-                if price > 0:
-                    if self._last_price > 0:
-                        ret = float(np.log(price / self._last_price))
-                        self._returns_buffer.append(ret)
-                        # Keep bounded
-                        if len(self._returns_buffer) > 5000:
-                            self._returns_buffer = self._returns_buffer[-2500:]
-                    self._last_price = price
+                if price > 0 and symbol:
+                    last = self._last_prices.get(symbol)
+                    if last is not None and last > 0:
+                        # Only feed SPY returns into the regime/GARCH buffer
+                        if symbol == self._regime_symbol:
+                            ret = float(np.log(price / last))
+                            self._returns_buffer.append(ret)
+                            if len(self._returns_buffer) > 5000:
+                                self._returns_buffer = self._returns_buffer[-2500:]
+                    self._last_prices[symbol] = price
             except (ValueError, KeyError, TypeError):
                 pass
 

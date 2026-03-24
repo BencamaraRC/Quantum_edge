@@ -363,36 +363,101 @@ class PipelineCoordinator:
                     stop_loss=tech.stop_loss,
                     take_profit=tech.take_profit,
                 )
+
+                memo.execution = result
+                await self.memo_store.save(memo)
+
+                if result.status == "failed":
+                    await self.bus.publish(
+                        STREAMS["execution"],
+                        PipelineEvent(
+                            event_type=PipelineEventType.ORDER_REJECTED,
+                            memo_id=active.memo_id,
+                            symbol=memo.symbol,
+                            data={"error": result.error or "Order failed"},
+                        ).to_stream_dict(),
+                    )
+                else:
+                    # Poll Alpaca for actual fill before publishing ORDER_FILLED
+                    fill_status = await self._wait_for_fill(broker, result.order_id or "")
+                    if fill_status == "filled":
+                        await self.bus.publish(
+                            STREAMS["execution"],
+                            PipelineEvent(
+                                event_type=PipelineEventType.ORDER_FILLED,
+                                memo_id=active.memo_id,
+                                symbol=memo.symbol,
+                                data={"order_id": result.order_id or "", "status": "filled"},
+                            ).to_stream_dict(),
+                        )
+                    elif fill_status in ("cancelled", "expired", "rejected"):
+                        await self.bus.publish(
+                            STREAMS["execution"],
+                            PipelineEvent(
+                                event_type=PipelineEventType.ORDER_REJECTED,
+                                memo_id=active.memo_id,
+                                symbol=memo.symbol,
+                                data={"error": f"Order {fill_status}"},
+                            ).to_stream_dict(),
+                        )
+                    else:
+                        # Still pending after timeout — publish ORDER_PENDING
+                        # Agent 08 will pick it up via cycle polling
+                        await self.bus.publish(
+                            STREAMS["execution"],
+                            PipelineEvent(
+                                event_type=PipelineEventType.ORDER_PENDING,
+                                memo_id=active.memo_id,
+                                symbol=memo.symbol,
+                                data={"order_id": result.order_id or "", "status": fill_status},
+                            ).to_stream_dict(),
+                        )
+                        logger.warning(
+                            "Order %s still %s after poll timeout — published ORDER_PENDING",
+                            result.order_id, fill_status,
+                        )
             finally:
                 await broker.disconnect()
-
-            memo.execution = result
-            await self.memo_store.save(memo)
-
-            if result.status == "failed":
-                await self.bus.publish(
-                    STREAMS["execution"],
-                    PipelineEvent(
-                        event_type=PipelineEventType.ORDER_REJECTED,
-                        memo_id=active.memo_id,
-                        symbol=memo.symbol,
-                        data={"error": result.error or "Order failed"},
-                    ).to_stream_dict(),
-                )
-            else:
-                await self.bus.publish(
-                    STREAMS["execution"],
-                    PipelineEvent(
-                        event_type=PipelineEventType.ORDER_FILLED,
-                        memo_id=active.memo_id,
-                        symbol=memo.symbol,
-                        data={"order_id": result.order_id or "", "status": result.status},
-                    ).to_stream_dict(),
-                )
 
         except Exception:
             logger.exception("Execution failed for memo %s", active.memo_id)
             await self._cancel_memo(active, "Execution error")
+
+    async def _wait_for_fill(
+        self,
+        broker: Any,
+        order_id: str,
+        poll_interval: float = 1.0,
+        timeout: float = 30.0,
+    ) -> str:
+        """Poll Alpaca until order is filled, terminal, or timeout.
+
+        Returns the final order status string.
+        """
+        if not order_id:
+            return "unknown"
+
+        elapsed = 0.0
+        while elapsed < timeout:
+            try:
+                order_info = await broker.get_order_by_id(order_id)
+                status = order_info.get("status", "unknown")
+                if status in ("filled", "partially_filled"):
+                    return "filled"
+                if status in ("cancelled", "expired", "rejected", "suspended"):
+                    return status
+                # Still pending — keep polling
+            except Exception:
+                logger.warning("Error polling order %s status", order_id)
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+        # Timeout — return last known status
+        try:
+            order_info = await broker.get_order_by_id(order_id)
+            return order_info.get("status", "pending")
+        except Exception:
+            return "pending"
 
     # ─── State transition helpers ───
 
@@ -501,8 +566,9 @@ class PipelineCoordinator:
                     if active.is_timed_out()
                 ]
                 for active in timed_out:
+                    timed_out_phase = active.memo.phase
                     active.memo.advance_phase(MemoPhase.TIMED_OUT)
-                    active.memo.cancel_reason = f"Timed out in phase {active.memo.phase}"
+                    active.memo.cancel_reason = f"Timed out in phase {timed_out_phase}"
                     active.memo.completed_at = datetime.utcnow()
                     await self.memo_store.save(active.memo)
                     self.active_memos.pop(active.memo_id, None)
@@ -513,10 +579,10 @@ class PipelineCoordinator:
                             event_type=PipelineEventType.MEMO_TIMED_OUT,
                             memo_id=active.memo_id,
                             symbol=active.memo.symbol,
-                            data={"phase": active.memo.phase.value},
+                            data={"phase": timed_out_phase.value},
                         ).to_stream_dict(),
                     )
-                    logger.warning("Memo %s timed out in phase %s", active.memo_id, active.memo.phase)
+                    logger.warning("Memo %s timed out in phase %s", active.memo_id, timed_out_phase)
             except asyncio.CancelledError:
                 break
             except Exception:

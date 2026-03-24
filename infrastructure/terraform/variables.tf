@@ -81,3 +81,59 @@ variable "redis_num_cache_clusters" {
   type        = number
   default     = 2
 }
+
+# ─── ECS / API Secrets ───
+
+variable "database_url" {
+  description = "PostgreSQL connection string for API"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "redis_url" {
+  description = "Redis connection string for API"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "alpaca_api_key" {
+  description = "Alpaca API key"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "alpaca_api_secret" {
+  description = "Alpaca API secret"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "alpaca_base_url" {
+  description = "Alpaca base URL"
+  type        = string
+  default     = "https://paper-api.alpaca.markets"
+}
+
+variable "qe_auth_secret" {
+  description = "JWT auth secret for QE API"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "qe_admin_username" {
+  description = "Admin username for QE dashboard"
+  type        = string
+  default     = "admin"
+}
+
+variable "qe_admin_password" {
+  description = "Admin password for QE dashboard"
+  type        = string
+  sensitive   = true
+  default     = ""
+}

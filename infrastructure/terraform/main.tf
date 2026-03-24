@@ -87,3 +87,27 @@ module "ecr" {
 
   environment = var.environment
 }
+
+# ─── ECS Fargate (Dashboard + API) ───
+
+module "ecs" {
+  source = "./modules/ecs"
+
+  environment     = var.environment
+  aws_region      = var.aws_region
+  vpc_id          = module.vpc.vpc_id
+  public_subnets  = module.vpc.public_subnets
+  private_subnets = module.vpc.private_subnets
+
+  dashboard_image = "${module.ecr.dashboard_repository_url}:latest"
+  api_image       = "${module.ecr.agent_repository_url}:latest"
+
+  database_url      = var.database_url
+  redis_url         = var.redis_url
+  alpaca_api_key    = var.alpaca_api_key
+  alpaca_api_secret = var.alpaca_api_secret
+  alpaca_base_url   = var.alpaca_base_url
+  qe_auth_secret    = var.qe_auth_secret
+  qe_admin_username = var.qe_admin_username
+  qe_admin_password = var.qe_admin_password
+}

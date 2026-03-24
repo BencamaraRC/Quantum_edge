@@ -210,24 +210,48 @@ class PositionMonitor(BaseAgent):
         )
 
     async def _activate_trailing_stop(self, mp: MonitoredPosition, current_pct: float) -> None:
-        """Cancel bracket legs and submit a trailing stop order."""
+        """Cancel bracket legs and submit a trailing stop order.
+
+        Safety protocol:
+        1. Cancel TP leg first (check result — abort if fail to avoid orphaned orders)
+        2. Mark intent in Redis BEFORE cancelling SL (crash recovery can detect this)
+        3. Cancel SL leg (abort if fail — bracket protection remains)
+        4. Submit trailing stop immediately
+        5. If trailing stop fails, emergency close (position must never be naked)
+        """
         symbol = mp.symbol
 
-        # Step 1: Cancel take-profit leg (less critical)
+        # Step 1: Cancel take-profit leg — abort if this fails (avoid orphaned TP)
         if mp.take_profit_leg_id:
-            await self._broker.cancel_order_by_id(mp.take_profit_leg_id)
+            tp_cancelled = await self._broker.cancel_order_by_id(mp.take_profit_leg_id)
+            if not tp_cancelled:
+                logger.error(
+                    "ABORT trailing stop: could not cancel TP leg for %s (bracket remains intact)",
+                    symbol,
+                )
+                return
 
-        # Step 2: Cancel stop-loss leg (critical — if this fails, abort)
+        # Step 2: Persist intent — if we crash after SL cancel, recovery knows to
+        # either re-submit a trailing stop or emergency close
+        mp.trailing_stop_activated = True  # Mark intent
+        mp.activated_at = datetime.utcnow().isoformat()
+        await self._persist_state()
+
+        # Step 3: Cancel stop-loss leg (critical — if this fails, abort)
         if mp.stop_loss_leg_id:
             cancelled = await self._broker.cancel_order_by_id(mp.stop_loss_leg_id)
             if not cancelled:
+                # Rollback intent — bracket SL still protects us
+                mp.trailing_stop_activated = False
+                mp.activated_at = None
+                await self._persist_state()
                 logger.error(
                     "ABORT trailing stop: could not cancel SL leg for %s (bracket protection remains)",
                     symbol,
                 )
                 return
 
-        # Step 3: Submit trailing stop
+        # Step 4: Submit trailing stop — position is unprotected, do this immediately
         result = await self._broker.submit_trailing_stop_order(
             symbol=symbol,
             side=mp.side,
@@ -236,7 +260,7 @@ class PositionMonitor(BaseAgent):
         )
 
         if result.status == "failed":
-            # Emergency: brackets cancelled but trailing stop failed — close position
+            # Emergency: brackets cancelled but trailing stop failed — close position NOW
             logger.critical(
                 "TRAILING STOP FAILED for %s after cancelling brackets. Emergency close.",
                 symbol,
@@ -245,10 +269,8 @@ class PositionMonitor(BaseAgent):
             await self._on_position_closed(mp, reason="trailing_stop_submission_failed_emergency_close")
             return
 
-        # Step 4: Update state
-        mp.trailing_stop_activated = True
+        # Step 5: Record trailing stop order ID
         mp.trailing_stop_order_id = result.order_id or ""
-        mp.activated_at = datetime.utcnow().isoformat()
         await self._persist_state()
 
         # Step 5: Publish event
@@ -315,7 +337,12 @@ class PositionMonitor(BaseAgent):
             await redis.delete(MONITOR_STATE_KEY)
 
     async def _recover_state(self) -> None:
-        """Recover monitored positions from Redis on startup."""
+        """Recover monitored positions from Redis on startup.
+
+        Handles crash recovery: if a position was mid-activation (trailing_stop_activated=True
+        but no trailing_stop_order_id), the SL bracket was likely cancelled and the position
+        is unprotected. Submit a trailing stop or emergency close.
+        """
         redis = self.bus.redis
         raw = await redis.hgetall(MONITOR_STATE_KEY)
         for memo_id, json_str in raw.items():
@@ -324,8 +351,44 @@ class PositionMonitor(BaseAgent):
                 self._monitored[memo_id] = mp
             except Exception:
                 logger.warning("Could not recover position for memo %s", memo_id)
+
         if self._monitored:
             logger.info("Recovered %d monitored positions from Redis", len(self._monitored))
+
+        # Crash recovery: fix positions left unprotected mid-activation
+        for memo_id, mp in list(self._monitored.items()):
+            if mp.trailing_stop_activated and not mp.trailing_stop_order_id:
+                logger.warning(
+                    "CRASH RECOVERY: %s was mid-activation with no trailing stop order. "
+                    "Attempting to submit trailing stop.",
+                    mp.symbol,
+                )
+                position = await self._broker.get_open_position(mp.symbol)
+                if position is None:
+                    logger.info("Position %s already closed, cleaning up", mp.symbol)
+                    self._monitored.pop(memo_id, None)
+                    continue
+
+                result = await self._broker.submit_trailing_stop_order(
+                    symbol=mp.symbol,
+                    side=mp.side,
+                    qty=mp.qty,
+                    trail_percent=mp.trail_percent,
+                )
+                if result.status == "failed":
+                    logger.critical(
+                        "CRASH RECOVERY FAILED for %s — emergency close", mp.symbol,
+                    )
+                    await self._broker.close_position(mp.symbol)
+                    self._monitored.pop(memo_id, None)
+                else:
+                    mp.trailing_stop_order_id = result.order_id or ""
+                    logger.info(
+                        "CRASH RECOVERY: trailing stop submitted for %s (order=%s)",
+                        mp.symbol, mp.trailing_stop_order_id,
+                    )
+
+            await self._persist_state()
 
 
 async def main() -> None:

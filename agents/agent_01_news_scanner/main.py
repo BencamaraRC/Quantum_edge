@@ -26,9 +26,13 @@ logger = logging.getLogger(__name__)
 
 # RSS feeds for financial news
 NEWS_FEEDS = [
-    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=SPY&region=US&lang=en-US",
-    "https://www.cnbc.com/id/100003114/device/rss/rss.html",
     "https://feeds.bloomberg.com/markets/news.rss",
+    "https://feeds.bloomberg.com/technology/news.rss",
+    "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114",
+    "https://www.investing.com/rss/news_301.rss",
+    "https://feeds.marketwatch.com/marketwatch/topstories/",
+    "https://feeds.marketwatch.com/marketwatch/StockstoWatch/",
+    "https://seekingalpha.com/market_currents.xml",
 ]
 
 # Symbols to filter news for — strategy universe + indices
@@ -59,7 +63,7 @@ class NewsScanner(BaseAgent):
             self._sentiment_pipeline = pipeline(
                 "sentiment-analysis",
                 model="ProsusAI/finbert",
-                return_all_scores=True,
+                top_k=None,
             )
             logger.info("FinBERT model loaded")
         except Exception:
@@ -208,13 +212,15 @@ class NewsScanner(BaseAgent):
         )
 
     async def _fetch_headlines(self) -> list[dict[str, str]]:
-        """Fetch headlines from RSS feeds."""
+        """Fetch headlines from RSS feeds + Finnhub API."""
         headlines: list[dict[str, str]] = []
+
+        # RSS feeds
         for feed_url in NEWS_FEEDS:
             try:
                 if self._http_client is None:
                     continue
-                resp = await self._http_client.get(feed_url)
+                resp = await self._http_client.get(feed_url, follow_redirects=True)
                 feed = feedparser.parse(resp.text)
                 for entry in feed.entries[:20]:
                     headlines.append({
@@ -224,7 +230,26 @@ class NewsScanner(BaseAgent):
                         "published": entry.get("published", ""),
                     })
             except Exception:
-                logger.warning("Failed to fetch feed: %s", feed_url)
+                logger.debug("Failed to fetch feed: %s", feed_url)
+
+        # Finnhub API (if key available)
+        if settings.finnhub_api_key and self._http_client:
+            try:
+                resp = await self._http_client.get(
+                    "https://finnhub.io/api/v1/news",
+                    params={"category": "general", "token": settings.finnhub_api_key},
+                )
+                if resp.status_code == 200:
+                    for item in resp.json()[:30]:
+                        headlines.append({
+                            "title": item.get("headline", ""),
+                            "source": item.get("source", "finnhub"),
+                            "link": item.get("url", ""),
+                            "published": str(item.get("datetime", "")),
+                        })
+            except Exception:
+                logger.debug("Finnhub API failed")
+
         return headlines
 
     def _score_sentiment(self, text: str) -> dict[str, Any]:
@@ -248,10 +273,37 @@ class NewsScanner(BaseAgent):
 
         return {"score": 0.0, "label": "neutral", "confidence": 0.5}
 
+    # Map company names to tickers for better headline matching
+    _NAME_MAP = {
+        "NVIDIA": "NVDA", "GOOGLE": "GOOGL", "ALPHABET": "GOOGL",
+        "MICROSOFT": "MSFT", "AMAZON": "AMZN", "APPLE": "AAPL",
+        "TESLA": "TSLA", "META PLATFORMS": "META", "FACEBOOK": "META",
+        "SUPERMICRO": "SMCI", "SUPER MICRO": "SMCI",
+        "BROADCOM": "AVGO", "ORACLE": "ORCL", "ADOBE": "ADBE",
+        "SALESFORCE": "CRM", "SNOWFLAKE": "SNOW", "DATADOG": "DDOG",
+        "CROWDSTRIKE": "CRWD", "SHOPIFY": "SHOP", "SERVICENOW": "NOW",
+        "PALO ALTO": "PANW", "SNAPCHAT": "SNAP", "PINTEREST": "PINS",
+        "REDDIT": "RDDT", "TAIWAN SEMI": "TSM", "TSMC": "TSM",
+        "WORKDAY": "WDAY",
+    }
+
     def _extract_symbols(self, text: str) -> list[str]:
         """Extract tracked stock symbols from headline text."""
+        import re
         text_upper = text.upper()
-        return [s for s in TRACKED_SYMBOLS if f" {s} " in f" {text_upper} " or f"${s}" in text_upper]
+        found = set()
+
+        # Match ticker symbols with word boundaries
+        for s in TRACKED_SYMBOLS:
+            if re.search(rf'\b{s}\b', text_upper) or f"${s}" in text_upper:
+                found.add(s)
+
+        # Match company names
+        for name, ticker in self._NAME_MAP.items():
+            if name in text_upper:
+                found.add(ticker)
+
+        return list(found)
 
     def _aggregate_sentiment(self, headlines: list[dict[str, str]]) -> float:
         """Compute average sentiment across all headlines."""

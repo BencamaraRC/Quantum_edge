@@ -198,24 +198,22 @@ class RiskGuard(BaseAgent):
     async def _refresh_vix(self) -> None:
         """Fetch current VIX level for Kelly modulation and circuit breaker."""
         try:
-            from alpaca.data.requests import StockLatestQuoteRequest
-            from alpaca.data.historical import StockHistoricalDataClient
+            import yfinance as yf
 
-            client = StockHistoricalDataClient(
-                api_key=settings.alpaca_api_key,
-                secret_key=settings.alpaca_secret_key,
-            )
-            # Use VIXY as VIX proxy (Alpaca doesn't provide ^VIX directly)
-            request = StockLatestQuoteRequest(symbol_or_symbols=["VIXY"])
-            quotes = client.get_stock_latest_quote(request)
-            vixy_quote = quotes.get("VIXY")
-            if vixy_quote:
-                # VIXY roughly tracks VIX — use as proxy
-                vixy_price = float(vixy_quote.ask_price + vixy_quote.bid_price) / 2
-                # Approximate VIX from VIXY (rough mapping)
-                self._current_vix = max(10.0, vixy_price * 1.5)
+            vix = yf.Ticker("^VIX")
+            fast = vix.fast_info
+            vix_price = getattr(fast, "last_price", None)
+            if vix_price is not None and vix_price > 0:
+                self._current_vix = float(vix_price)
             else:
-                self._current_vix = 15.0  # Default calm
+                # Fallback: try history
+                hist = vix.history(period="1d")
+                if not hist.empty:
+                    self._current_vix = float(hist["Close"].iloc[-1])
+                else:
+                    logger.warning("VIX fetch returned no data, keeping previous value %.1f", self._current_vix)
+
+            logger.info("VIX level: %.1f (threshold: %.1f)", self._current_vix, VIX_CIRCUIT_BREAKER)
 
             # VIX circuit breaker (H7)
             if self._current_vix >= VIX_CIRCUIT_BREAKER:
@@ -232,9 +230,20 @@ class RiskGuard(BaseAgent):
                     await self._broker.close_all_positions()
                     await self.update_context("portfolio", self._portfolio.to_context_dict())
 
+            # Auto-reset: clear VIX circuit breaker when VIX drops below threshold
+            elif self._portfolio and self._portfolio.circuit_breaker_active:
+                reason = self._portfolio.circuit_breaker_reason or ""
+                if "VIX" in reason:
+                    self._portfolio.circuit_breaker_active = False
+                    self._portfolio.circuit_breaker_reason = None
+                    logger.info(
+                        "VIX circuit breaker CLEARED: %.1f < %.1f",
+                        self._current_vix, VIX_CIRCUIT_BREAKER,
+                    )
+                    await self.update_context("portfolio", self._portfolio.to_context_dict())
+
         except Exception:
-            logger.debug("VIX refresh failed, using default")
-            self._current_vix = 15.0
+            logger.warning("VIX refresh failed, keeping previous value %.1f", self._current_vix)
 
     async def evaluate_risk(
         self,

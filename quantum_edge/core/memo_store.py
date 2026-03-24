@@ -112,12 +112,12 @@ class MemoStore:
 
     async def get_active_memos(self) -> list[InvestmentMemo]:
         """Get all non-terminal memos from TimescaleDB."""
-        terminal_phases = ("completed", "cancelled", "rejected", "timed_out")
+        terminal_phases = ["completed", "cancelled", "rejected", "timed_out"]
         async with self._session_factory() as session:
             result = await session.execute(
                 text("""
                     SELECT data FROM investment_memos
-                    WHERE phase NOT IN :phases
+                    WHERE phase != ALL(:phases)
                     ORDER BY created_at DESC
                 """),
                 {"phases": terminal_phases},

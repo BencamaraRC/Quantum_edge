@@ -32,6 +32,7 @@ class PipelineEventType(StrEnum):
     # Execution events
     ORDER_SUBMITTED = "order_submitted"
     ORDER_FILLED = "order_filled"
+    ORDER_PENDING = "order_pending"
     ORDER_REJECTED = "order_rejected"
     ORDER_CANCELLED = "order_cancelled"
 

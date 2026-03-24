@@ -53,3 +53,13 @@ output "aws_account_id" {
   description = "AWS account ID"
   value       = data.aws_caller_identity.current.account_id
 }
+
+output "alb_dns_name" {
+  description = "ALB DNS name — public URL for Quantum Edge"
+  value       = module.ecs.alb_dns_name
+}
+
+output "ecs_cluster_name" {
+  description = "ECS Fargate cluster name"
+  value       = module.ecs.cluster_name
+}

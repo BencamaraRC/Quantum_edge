@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     max_correlated_exposure_pct: float = 15.0
 
     # ─── Strategy Rules ───
-    max_open_positions: int = 3
+    max_open_positions: int = 5
     min_rr_ratio: float = 2.5
     vix_circuit_breaker_threshold: float = 30.0
     vix_kelly_reduction_start: float = 18.0

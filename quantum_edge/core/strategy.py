@@ -18,12 +18,32 @@ MAG7_TIERS: dict[str, list[str]] = {
 # All Mag 7 symbols (flat list)
 MAG7_SYMBOLS: list[str] = [s for tier in MAG7_TIERS.values() for s in tier]
 
+# ─── Expanded Universe (10 new primary symbols) ───
+EXPANDED_TIERS: dict[str, list[str]] = {
+    "tier1_core": ["AMD", "AVGO", "XOM", "LNG", "LLY"],
+    "tier2_active": ["NFLX", "CRM", "COIN"],
+    "tier3_watch": ["COST", "UBER"],
+}
+
+EXPANDED_SYMBOLS: list[str] = [s for tier in EXPANDED_TIERS.values() for s in tier]
+
+# All primary symbols that trade independently (Mag 7 + Expanded)
+PRIMARY_SYMBOLS: list[str] = sorted(set(MAG7_SYMBOLS + EXPANDED_SYMBOLS))
+
 SATELLITE_CLUSTERS: dict[str, list[str]] = {
-    "NVDA": ["SMCI", "PWR", "FIX", "AMD", "AVGO", "TSM"],
+    # Mag 7 anchors (AMD, AVGO, CRM promoted out)
+    "NVDA": ["SMCI", "PWR", "FIX", "TSM"],
     "GOOGL": ["TTD", "PUBM", "MGNI", "SNOW", "DDOG"],
     "META": ["SNAP", "PINS", "RDDT"],
-    "AMZN": ["CRM", "NOW", "SHOP", "PANW"],
+    "AMZN": ["NOW", "SHOP", "PANW"],
     "MSFT": ["ADBE", "ORCL", "WDAY", "CRWD"],
+    # Expanded anchors
+    "AMD": ["MRVL", "INTC", "KLAC"],
+    "AVGO": ["MCHP", "SWKS", "QCOM"],
+    "XOM": ["CVX", "COP", "OXY"],
+    "LNG": ["EQT", "AR"],
+    "LLY": ["NVO", "ABBV"],
+    "COIN": ["MARA", "MSTR"],
 }
 
 # All satellite symbols (flat, deduplicated)
@@ -32,12 +52,15 @@ ALL_SATELLITE_SYMBOLS: list[str] = sorted(
 )
 
 # Full universe for data collection
-FULL_UNIVERSE: list[str] = sorted(set(MAG7_SYMBOLS + ALL_SATELLITE_SYMBOLS))
+FULL_UNIVERSE: list[str] = sorted(set(PRIMARY_SYMBOLS + ALL_SATELLITE_SYMBOLS))
 
 
 def get_tier(symbol: str) -> str | None:
-    """Return tier name for a Mag 7 symbol, or None if not Mag 7."""
+    """Return tier name for a primary symbol, or None if not primary."""
     for tier_name, symbols in MAG7_TIERS.items():
+        if symbol in symbols:
+            return tier_name
+    for tier_name, symbols in EXPANDED_TIERS.items():
         if symbol in symbols:
             return tier_name
     return None
@@ -53,6 +76,11 @@ def get_anchor(satellite: str) -> str | None:
 
 def is_mag7(symbol: str) -> bool:
     return symbol in MAG7_SYMBOLS
+
+
+def is_primary(symbol: str) -> bool:
+    """Return True if symbol trades independently (Mag 7 or Expanded)."""
+    return symbol in PRIMARY_SYMBOLS
 
 
 def is_satellite(symbol: str) -> bool:
@@ -125,7 +153,7 @@ MAX_SATELLITES_PER_ANCHOR = 1
 
 # ─── Risk Constants ───
 
-MAX_OPEN_POSITIONS = 3
+MAX_OPEN_POSITIONS = 5
 MIN_RR_RATIO = 2.5
 VIX_CIRCUIT_BREAKER = 30.0
 VIX_KELLY_RANGE = (18.0, 25.0)

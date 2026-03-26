@@ -1,11 +1,11 @@
 """Watchlist Scanner — monitors signal streams and triggers memo creation.
 
-Uses the strategy universe (Mag 7 tiers + satellites). Triggers satellite
-lag-window scanning when a Mag 7 anchor trade completes.
+Uses the strategy universe (primary symbols + satellites). Triggers satellite
+lag-window scanning when a primary anchor trade completes.
 
 Strategy rules:
-- Mag 7 symbols are primary watchlist candidates
-- Satellite scanning activates 2-6 hours after a Mag 7 anchor trade
+- Primary symbols (Mag 7 + Expanded) are independent watchlist candidates
+- Satellite scanning activates 2-6 hours after a primary anchor trade
 - Satellites get +0.05 prior boost but must independently clear 0.75
 - Max 1 satellite per anchor event
 """
@@ -25,11 +25,11 @@ from quantum_edge.core.memo_store import MemoStore
 from quantum_edge.core.message_bus import STREAMS, MessageBus
 from quantum_edge.core.strategy import (
     FULL_UNIVERSE,
-    MAG7_SYMBOLS,
     MAX_SATELLITES_PER_ANCHOR,
+    PRIMARY_SYMBOLS,
     SATELLITE_CLUSTERS,
     SATELLITE_LAG_WINDOW_HOURS,
-    is_mag7,
+    is_primary,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ MIN_SIGNAL_COUNT = 2
 # Cooldown before re-triggering the same symbol
 COOLDOWN_SECONDS = 300
 # Signal decay window — only count signals within this window
-SIGNAL_WINDOW_SECONDS = 120
+SIGNAL_WINDOW_SECONDS = 300
 
 
 class AnchorEvent:
@@ -108,7 +108,7 @@ class WatchlistScanner:
 
         logger.info(
             "Watchlist Scanner started — universe: %d symbols (%d Mag7 + %d satellites)",
-            len(FULL_UNIVERSE), len(MAG7_SYMBOLS), len(FULL_UNIVERSE) - len(MAG7_SYMBOLS),
+            len(FULL_UNIVERSE), len(PRIMARY_SYMBOLS), len(FULL_UNIVERSE) - len(PRIMARY_SYMBOLS),
         )
 
         while self._running:
@@ -184,8 +184,8 @@ class WatchlistScanner:
         if not symbol or not memo_id_str:
             return
 
-        # Only create anchor events for Mag 7 symbols
-        if not is_mag7(symbol):
+        # Only create anchor events for primary symbols
+        if not is_primary(symbol):
             return
 
         # Only if this anchor has satellites defined
@@ -221,7 +221,7 @@ class WatchlistScanner:
                 continue
 
             # Check if enough signals with meaningful scores
-            strong_signals = [(s, t) for s, t in signals if abs(s) > 0.2]
+            strong_signals = [(s, t) for s, t in signals if abs(s) > 0.05]
             if len(strong_signals) < MIN_SIGNAL_COUNT:
                 continue
 
@@ -234,7 +234,7 @@ class WatchlistScanner:
 
             # Check circuit breaker
             portfolio_ctx = await self.context.get("portfolio")
-            if portfolio_ctx.get("circuit_breaker_active"):
+            if str(portfolio_ctx.get("circuit_breaker_active", "")).lower() == "true":
                 logger.warning("Circuit breaker active — skipping memo creation")
                 continue
 
@@ -243,8 +243,8 @@ class WatchlistScanner:
             anchor_symbol = None
             anchor_memo_id = None
 
-            if is_mag7(symbol):
-                # Primary Mag 7 trigger — always allowed
+            if is_primary(symbol):
+                # Primary trigger — always allowed (Mag 7 + Expanded)
                 pass
             else:
                 # Satellite — only trigger if in an active lag window

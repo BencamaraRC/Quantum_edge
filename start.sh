@@ -43,12 +43,12 @@ from infrastructure.scripts.init_redis_streams import init_streams
 asyncio.run(init_streams('redis://localhost:6379/0'))
 " 2>&1 | tail -1
 
-# Kill any previous instances
+# Kill any previous instances (force kill to catch stale processes)
 echo ""
 echo "Cleaning up old processes..."
-pkill -f "uvicorn quantum_edge.api" 2>/dev/null || true
-pkill -f "coordinator.main" 2>/dev/null || true
-pkill -f "agents.agent_0" 2>/dev/null || true
+pkill -9 -f "quantum_edge" 2>/dev/null || true
+pkill -9 -f "coordinator.main" 2>/dev/null || true
+pkill -9 -f "agents.agent_0" 2>/dev/null || true
 sleep 2
 
 # Start API
@@ -123,4 +123,46 @@ echo "  Logs: tail -f logs/*.log"
 echo "  Stop: pkill -f 'quantum_edge\|coordinator\|agents.agent'"
 echo ""
 echo "  Market hours: Mon-Fri 9:30am-4:00pm ET"
+echo "============================================"
+
+# ─── Post-launch health check: verify scanner is actively scanning ───
+echo ""
+echo "Verifying scanner is actively scanning (30s)..."
+sleep 30
+
+SCANNER_ALIVE=$(ps aux | grep "[w]atchlist_scanner" | grep -v grep | wc -l)
+if [ "$SCANNER_ALIVE" -eq 0 ]; then
+  echo "CRITICAL: Watchlist Scanner DIED after launch. Shutting down system."
+  echo "Check logs/watchlist_scanner.log for errors."
+  pkill -9 -f "quantum_edge" 2>/dev/null || true
+  pkill -9 -f "coordinator.main" 2>/dev/null || true
+  pkill -9 -f "agents.agent_0" 2>/dev/null || true
+  exit 1
+fi
+
+# Check scanner log for signs of life (Triggering or Started messages)
+SCANNER_ACTIVE=$(grep -c -E "Watchlist Scanner started|Triggering memo" "$LOG_DIR/watchlist_scanner.log" 2>/dev/null || echo 0)
+if [ "$SCANNER_ACTIVE" -eq 0 ]; then
+  echo "CRITICAL: Watchlist Scanner running but NOT scanning. Shutting down system."
+  echo "Last 10 lines of scanner log:"
+  tail -10 "$LOG_DIR/watchlist_scanner.log"
+  pkill -9 -f "quantum_edge" 2>/dev/null || true
+  pkill -9 -f "coordinator.main" 2>/dev/null || true
+  pkill -9 -f "agents.agent_0" 2>/dev/null || true
+  exit 1
+fi
+
+# Verify at least 6 agents still alive
+AGENTS_ALIVE=$(ps aux | grep "[a]gents.agent_0" | wc -l)
+if [ "$AGENTS_ALIVE" -lt 6 ]; then
+  echo "CRITICAL: Only $AGENTS_ALIVE/8 agents alive. Shutting down system."
+  pkill -9 -f "quantum_edge" 2>/dev/null || true
+  pkill -9 -f "coordinator.main" 2>/dev/null || true
+  pkill -9 -f "agents.agent_0" 2>/dev/null || true
+  exit 1
+fi
+
+echo "[OK] Scanner active, $AGENTS_ALIVE/8 agents alive — system healthy"
+echo ""
+echo "  Universe: $($PYTHON -c 'from quantum_edge.core.strategy import PRIMARY_SYMBOLS, FULL_UNIVERSE; print(f"{len(PRIMARY_SYMBOLS)} primary, {len(FULL_UNIVERSE)} total")' 2>/dev/null)"
 echo "============================================"

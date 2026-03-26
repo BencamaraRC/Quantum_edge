@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     signal_collection_timeout_s: int = 120
     smart_money_timeout_s: int = 60
     pass1_threshold: float = 0.65
-    pass2_threshold: float = 0.75
+    pass2_threshold: float = 0.68
     max_daily_loss_pct: float = 6.0
     max_position_pct: float = 25.0  # Max position as % of NAV (strategy: 25% at max conviction)
     max_correlated_exposure_pct: float = 15.0

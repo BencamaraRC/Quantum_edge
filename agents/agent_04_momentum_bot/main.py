@@ -207,7 +207,7 @@ class MomentumBot(BaseAgent):
                         symbol=symbol,
                         agent_id=self.agent_id,
                         pass_number=pass_number,
-                        data={"agent_id": self.agent_id, "symbol": symbol},
+                        data={"agent_id": self.agent_id, "symbol": symbol, "signal": signal.model_dump_json()},
                     ))
 
     def _ingest_market_data(self, data: dict[str, str]) -> None:

@@ -22,7 +22,7 @@ from quantum_edge.core.memo_factory import MemoFactory
 from quantum_edge.core.memo_store import MemoStore
 from quantum_edge.core.message_bus import STREAMS, MessageBus
 from quantum_edge.models.events import PipelineEvent, PipelineEventType
-from quantum_edge.models.memo import InvestmentMemo, MemoPhase
+from quantum_edge.models.memo import AgentSignal, InvestmentMemo, MemoPhase, SmartMoneySignal
 
 logger = logging.getLogger(__name__)
 
@@ -170,8 +170,24 @@ class PipelineCoordinator:
             return
         memo = await self.memo_store.get(event.memo_id)
         if memo and not memo.is_terminal():
-            self.active_memos[event.memo_id] = ActiveMemo(memo)
+            active = ActiveMemo(memo)
+            self.active_memos[event.memo_id] = active
             logger.info("Tracking new memo: %s (%s)", event.memo_id, event.symbol)
+
+            # Notify agents to start signal collection
+            await self.bus.publish(
+                STREAMS["phase"],
+                PipelineEvent(
+                    event_type=PipelineEventType.PHASE_ADVANCE,
+                    memo_id=event.memo_id,
+                    symbol=memo.symbol,
+                    phase=MemoPhase.SIGNAL_COLLECTION_PASS1.value,
+                    data={
+                        "from_phase": "none",
+                        "to_phase": MemoPhase.SIGNAL_COLLECTION_PASS1.value,
+                    },
+                ).to_stream_dict(),
+            )
 
     async def _on_signal_received(self, event: PipelineEvent) -> None:
         if event.memo_id is None or event.memo_id not in self.active_memos:
@@ -181,8 +197,16 @@ class PipelineCoordinator:
         pass_num = event.pass_number or 1
         agent_id = event.agent_id or ""
 
+        # Deserialize signal from event data
+        signal_json = event.data.get("signal")
+        signal = None
+        if signal_json:
+            signal = AgentSignal.model_validate_json(signal_json)
+
         if pass_num == 1:
             active.pass1_signals_received.add(agent_id)
+            if signal:
+                active.memo.pass1_signals.append(signal)
             if len(active.pass1_signals_received) >= REQUIRED_PASS_SIGNALS:
                 # Assemble memo v1 before scoring
                 if self.memo_factory:
@@ -199,6 +223,8 @@ class PipelineCoordinator:
                 await self._do_scoring(active, pass_num=1)
         elif pass_num == 2:
             active.pass2_signals_received.add(agent_id)
+            if signal:
+                active.memo.pass2_signals.append(signal)
             if len(active.pass2_signals_received) >= REQUIRED_PASS_SIGNALS:
                 # Assemble memo v2 before scoring
                 if self.memo_factory:
@@ -239,6 +265,13 @@ class PipelineCoordinator:
         if event.memo_id is None or event.memo_id not in self.active_memos:
             return
         active = self.active_memos[event.memo_id]
+
+        # Deserialize SmartMoneySignal from event data
+        signal_json = event.data.get("signal")
+        if signal_json:
+            active.memo.smart_money = SmartMoneySignal.model_validate_json(signal_json)
+            await self.memo_store.save(active.memo)
+
         await self._advance_phase(active, MemoPhase.SIGNAL_COLLECTION_PASS2)
 
     async def _on_technical_complete(self, event: PipelineEvent) -> None:

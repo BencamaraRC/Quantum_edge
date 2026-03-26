@@ -82,6 +82,12 @@ for agent in "${AGENTS[@]}"; do
   echo "  PID: $!"
 done
 
+# Start Watchlist Scanner
+echo "Starting Watchlist Scanner..."
+$PYTHON -m quantum_edge.core.watchlist_scanner \
+  > "$LOG_DIR/watchlist_scanner.log" 2>&1 &
+echo "  PID: $!"
+
 sleep 3
 
 # Verify
@@ -107,7 +113,9 @@ print(f'  Status: {a[\"status\"]}')
 
 echo ""
 RUNNING=$(ps aux | grep -c "[a]gents.agent_0")
+SCANNER=$(ps aux | grep -c "[w]atchlist_scanner")
 echo "  Agents running: $RUNNING/8"
+echo "  Watchlist Scanner: $([ $SCANNER -gt 0 ] && echo 'running' || echo 'NOT running')"
 echo "  API: http://localhost:8001/health"
 echo "  Dashboard: http://localhost:5174/pipeline"
 echo ""

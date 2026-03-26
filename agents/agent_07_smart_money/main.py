@@ -112,6 +112,7 @@ class SmartMoney(BaseAgent):
                 data={
                     "score": str(score),
                     "direction": direction.value,
+                    "signal": signal.model_dump_json(),
                 },
             ))
 

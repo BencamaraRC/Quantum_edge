@@ -157,11 +157,12 @@ class DecisionEngine:
             )
 
         # ─── All-positive gate ───
-        # All three components must contribute positively (> 0.5 on [0,1] scale)
+        # All three components must be non-negative (>= 0.5 on [0,1] scale).
+        # 0.5 = neutral/absent — should not veto. Only explicitly negative (< 0.5) blocks.
         all_positive = (
-            agent_signal_scores > 0.5
-            and ds_edge_score > 0.5
-            and (smart_money_score > 0.5 or not include_smart_money)
+            agent_signal_scores >= 0.5
+            and ds_edge_score >= 0.5
+            and (smart_money_score >= 0.5 or not include_smart_money)
         )
 
         # ─── Seasonal prior boost ───

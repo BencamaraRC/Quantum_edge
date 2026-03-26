@@ -222,7 +222,7 @@ class DataScientist(BaseAgent):
                 symbol=symbol,
                 agent_id=self.agent_id,
                 pass_number=pass_number,
-                data={"agent_id": self.agent_id, "symbol": symbol},
+                data={"agent_id": self.agent_id, "symbol": symbol, "signal": signal.model_dump_json()},
             ))
             logger.info("Published regime signal for %s (pass %d)", symbol, pass_number)
 

@@ -147,7 +147,7 @@ class MarketDataAgent(BaseAgent):
             symbol=symbol,
             agent_id=self.agent_id,
             pass_number=pass_number,
-            data={"agent_id": self.agent_id, "symbol": symbol},
+            data={"agent_id": self.agent_id, "symbol": symbol, "signal": signal.model_dump_json()},
         ))
         logger.info("Published signal for %s (pass %d, memo %s)", symbol, pass_number, memo_id)
 

@@ -61,7 +61,7 @@ class MemoStore:
             await session.execute(
                 text("""
                     INSERT INTO investment_memos (memo_id, symbol, version, phase, data, created_at, updated_at)
-                    VALUES (:memo_id, :symbol, :version, :phase, :data::jsonb, :created_at, :updated_at)
+                    VALUES (:memo_id, :symbol, :version, :phase, CAST(:data AS jsonb), :created_at, :updated_at)
                     ON CONFLICT (memo_id) DO UPDATE SET
                         version = EXCLUDED.version,
                         phase = EXCLUDED.phase,
